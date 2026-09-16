@@ -60,7 +60,7 @@ def call_api(payload: dict) -> dict:
         return {"success": False, "message": f"Request failed: {e}"}
 
 
-st.title("📋 Attendance Manager")
+st.title("📋 Attendance Manager V2")
 
 if "XXXXXXXXXXXXXXXXXXXXXXXX" in APPS_SCRIPT_URL:
     st.warning(
