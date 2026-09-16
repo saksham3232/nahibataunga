@@ -6,7 +6,10 @@ reads/writes directly to your Google Sheet.
 
 SETUP:
 1. Deploy AppsScript_Code.gs as a Web App (see instructions at top of that file).
-2. Paste the deployed Web App URL below into APPS_SCRIPT_URL.
+2. Create a file at .streamlit/secrets.toml (same folder as this script) with:
+       APPS_SCRIPT_URL = "https://script.google.com/macros/s/xxxxxxx/exec"
+   On Streamlit Community Cloud, instead paste this into your app's
+   Settings -> Secrets box (do NOT commit secrets.toml to a public repo).
 3. Run:  pip install -r requirements.txt
 4. Run:  streamlit run streamlit_app.py
 """
@@ -16,12 +19,13 @@ import requests
 import pandas as pd
 from datetime import date
 
-# ------------------------------------------------------------------
-# 1. PASTE YOUR DEPLOYED GOOGLE APPS SCRIPT WEB APP URL HERE
-# ------------------------------------------------------------------
-APPS_SCRIPT_URL = st.secrets["APPS_SCRIPT_URL"]
-
 st.set_page_config(page_title="Attendance Manager", page_icon="📋", layout="centered")
+
+# ------------------------------------------------------------------
+# Load the Apps Script Web App URL from Streamlit secrets, never hardcoded
+# in this file, so it never ends up visible in your source code/repo.
+# ------------------------------------------------------------------
+APPS_SCRIPT_URL = st.secrets.get("APPS_SCRIPT_URL", "")
 
 
 def make_headers_unique(headers):
@@ -60,13 +64,14 @@ def call_api(payload: dict) -> dict:
         return {"success": False, "message": f"Request failed: {e}"}
 
 
-st.title("📋 Attendance Manager V2")
+st.title("📋 Attendance Manager")
 
-if "XXXXXXXXXXXXXXXXXXXXXXXX" in APPS_SCRIPT_URL:
-    st.warning(
-        "⚠️ You haven't set your Apps Script Web App URL yet. "
-        "Deploy AppsScript_Code.gs and paste the URL into `APPS_SCRIPT_URL` in this file."
+if not APPS_SCRIPT_URL:
+    st.error(
+        "⚠️ APPS_SCRIPT_URL is not set. Add it to `.streamlit/secrets.toml` locally, "
+        "or under your app's Settings → Secrets if deployed on Streamlit Community Cloud."
     )
+    st.stop()
 
 # Date selector - controls which date column attendance is written to
 selected_date = st.date_input("📅 Select attendance date", value=date.today())
