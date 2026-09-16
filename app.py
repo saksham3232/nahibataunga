@@ -19,7 +19,6 @@ from datetime import date
 # ------------------------------------------------------------------
 # 1. PASTE YOUR DEPLOYED GOOGLE APPS SCRIPT WEB APP URL HERE
 # ------------------------------------------------------------------
-# APPS_SCRIPT_URL = "https://script.google.com/macros/s/XXXXXXXXXXXXXXXXXXXXXXXX/exec"
 APPS_SCRIPT_URL = st.secrets["APPS_SCRIPT_URL"]
 
 st.set_page_config(page_title="Attendance Manager", page_icon="📋", layout="centered")
@@ -60,11 +59,8 @@ def call_api(payload: dict) -> dict:
     except Exception as e:
         return {"success": False, "message": f"Request failed: {e}"}
 
-st.title("📋 Attendance Manager")
 
-if not APPS_SCRIPT_URL:
-    st.error("Apps Script URL is not configured.")
-    st.stop()
+st.title("📋 Attendance Manager")
 
 if "XXXXXXXXXXXXXXXXXXXXXXXX" in APPS_SCRIPT_URL:
     st.warning(
@@ -108,37 +104,49 @@ with tab_mark:
         elif not raw_values:
             st.warning("Please enter at least one last-two-digit value.")
         else:
-            results = []
+            full_rollnos = []
+            invalid_inputs = []
             for v in raw_values:
                 if not v.isdigit():
-                    results.append({"input": v, "rollno": "-", "status": "❌ Invalid (not a number)"})
+                    invalid_inputs.append(v)
                     continue
-                # zero-pad to 2 digits (so "1" becomes "01")
                 padded = v.zfill(2)
-                full_rollno = f"{prefix_clean}{padded}"
-                api_result = call_api(
-                    {
-                        "action": "markAttendance",
-                        "rollno": full_rollno,
-                        "date": date_str,
-                        "name": "",
-                    }
-                )
+                full_rollnos.append(f"{prefix_clean}{padded}")
+
+            if not full_rollnos:
+                st.warning("No valid numeric values found.")
+            else:
+                with st.spinner(f"Marking {len(full_rollnos)} students..."):
+                    api_result = call_api(
+                        {
+                            "action": "markAttendanceBulk",
+                            "rollnos": ",".join(full_rollnos),
+                            "date": date_str,
+                        }
+                    )
+
                 if api_result.get("success"):
-                    status = "ℹ️ Already marked" if api_result.get("already") else "✅ Marked present"
+                    results = api_result.get("results", [])
+                    status_map = {"marked": "✅ Marked present", "already": "ℹ️ Already marked"}
+                    display_rows = [
+                        {"rollno": r["rollno"], "status": status_map.get(r["status"], r["status"])}
+                        for r in results
+                    ]
+                    if invalid_inputs:
+                        for v in invalid_inputs:
+                            display_rows.append({"rollno": v, "status": "❌ Invalid (not a number)"})
+
+                    st.write(f"**Results for {date_str}:**")
+                    st.dataframe(pd.DataFrame(display_rows), width="stretch", hide_index=True)
+
+                    marked_count = sum(1 for r in results if r["status"] == "marked")
+                    already_count = sum(1 for r in results if r["status"] == "already")
+                    st.success(
+                        f"Done: {marked_count} newly marked, {already_count} already present, "
+                        f"{len(invalid_inputs)} invalid."
+                    )
                 else:
-                    status = f"❌ {api_result.get('message', 'Failed')}"
-                results.append({"input": v, "rollno": full_rollno, "status": status})
-
-            st.write(f"**Results for {date_str}:**")
-            st.dataframe(pd.DataFrame(results), width='stretch', hide_index=True)
-
-            success_count = sum(1 for r in results if r["status"].startswith("✅"))
-            already_count = sum(1 for r in results if r["status"].startswith("ℹ️"))
-            fail_count = sum(1 for r in results if r["status"].startswith("❌"))
-            st.success(
-                f"Done: {success_count} newly marked, {already_count} already present, {fail_count} failed."
-            )
+                    st.error(api_result.get("message", "Bulk marking failed."))
 
 # --------------------------- ADD STUDENT ---------------------------
 with tab_add:
