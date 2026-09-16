@@ -20,8 +20,8 @@ from datetime import date
 # 1. PASTE YOUR DEPLOYED GOOGLE APPS SCRIPT WEB APP URL HERE
 # ------------------------------------------------------------------
 # APPS_SCRIPT_URL = "https://script.google.com/macros/s/XXXXXXXXXXXXXXXXXXXXXXXX/exec"
-APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwCXrMODHAMOVyu5VYOTxluhVaEPT7RtsWGguCP7i1xmEMEVRCNt9UQcBCBfgtJXLpv/exec"
-# APPS_SCRIPT_URL = st.secrets["APPS_SCRIPT_URL"]
+# APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwCXrMODHAMOVyu5VYOTxluhVaEPT7RtsWGguCP7i1xmEMEVRCNt9UQcBCBfgtJXLpv/exec"
+APPS_SCRIPT_URL = st.secrets["APPS_SCRIPT_URL"]
 
 st.set_page_config(page_title="Attendance Manager", page_icon="📋", layout="centered")
 
