@@ -19,7 +19,7 @@ import requests
 import pandas as pd
 from datetime import date
 
-st.set_page_config(page_title="Attendance Manager", page_icon="📋", layout="centered")
+st.set_page_config(page_title="Attendance Manager V2", page_icon="📋", layout="centered")
 
 # ------------------------------------------------------------------
 # Load the Apps Script Web App URL from Streamlit secrets, never hardcoded
@@ -174,8 +174,17 @@ with tab_add:
 # --------------------------- VIEW RECORDS ---------------------------
 with tab_view:
     st.subheader("Full attendance sheet")
-    if st.button("Refresh Data"):
-        st.session_state["refresh"] = True
+    col_refresh, col_recalc = st.columns(2)
+    with col_refresh:
+        if st.button("Refresh Data"):
+            st.session_state["refresh"] = True
+    with col_recalc:
+        if st.button("Recalculate Totals"):
+            recalc_result = call_api({"action": "recalcSummary"})
+            if recalc_result.get("success"):
+                st.success("Totals recalculated.")
+            else:
+                st.error(recalc_result.get("message", "Recalculation failed."))
 
     result = call_api({"action": "getSheetData"})
     if result.get("success"):
