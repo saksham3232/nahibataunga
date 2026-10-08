@@ -1,0 +1,227 @@
+"""
+ATTENDANCE MANAGER - STREAMLIT FRONTEND
+----------------------------------------
+Talks to the Google Apps Script Web App (see AppsScript_Code.gs) which
+reads/writes directly to your Google Sheet.
+
+SETUP:
+1. Deploy AppsScript_Code.gs as a Web App (see instructions at top of that file).
+2. Create a file at .streamlit/secrets.toml (same folder as this script) with:
+       APPS_SCRIPT_URL = "https://script.google.com/macros/s/xxxxxxx/exec"
+   On Streamlit Community Cloud, instead paste this into your app's
+   Settings -> Secrets box (do NOT commit secrets.toml to a public repo).
+3. Run:  pip install -r requirements.txt
+4. Run:  streamlit run streamlit_app.py
+"""
+
+import streamlit as st
+import requests
+import pandas as pd
+from datetime import date
+
+st.set_page_config(page_title="Attendance Manager", page_icon="📋", layout="centered")
+
+# ------------------------------------------------------------------
+# Load the Apps Script Web App URL from Streamlit secrets, never hardcoded
+# in this file, so it never ends up visible in your source code/repo.
+# ------------------------------------------------------------------
+APPS_SCRIPT_URL = st.secrets.get("APPS_SCRIPT_URL", "")
+
+
+def make_headers_unique(headers):
+    """
+    Cleans up header labels for display and guarantees no duplicates,
+    so pandas/pyarrow never chokes on a table with repeated column names.
+    - Shortens ISO timestamps like '2026-09-16T07:00:00.000Z' down to '2026-09-16'.
+    - Appends (2), (3)... to any header that repeats.
+    """
+    cleaned = []
+    for h in headers:
+        h_str = str(h)
+        if "T" in h_str and h_str.endswith("Z") and len(h_str) >= 20:
+            h_str = h_str.split("T")[0]
+        cleaned.append(h_str)
+
+    seen = {}
+    unique = []
+    for h in cleaned:
+        if h not in seen:
+            seen[h] = 1
+            unique.append(h)
+        else:
+            seen[h] += 1
+            unique.append(f"{h} ({seen[h]})")
+    return unique
+
+
+def call_api(payload: dict) -> dict:
+    """Sends a POST request to the Apps Script backend and returns parsed JSON."""
+    try:
+        resp = requests.post(APPS_SCRIPT_URL, data=payload, timeout=20)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        return {"success": False, "message": f"Request failed: {e}"}
+
+
+st.title("📋 Attendance Manager")
+st.caption("COA - Department of IT & Computer Application, MMMUT Gorakhpur")
+
+if not APPS_SCRIPT_URL:
+    st.error(
+        "⚠️ APPS_SCRIPT_URL is not set. Add it to `.streamlit/secrets.toml` locally, "
+        "or under your app's Settings → Secrets if deployed on Streamlit Community Cloud."
+    )
+    st.stop()
+
+# Date selector - controls which date column attendance is written to
+selected_date = st.date_input("📅 Select attendance date", value=date.today())
+date_str = selected_date.strftime("%Y-%m-%d")
+
+tab_mark, tab_add, tab_view = st.tabs(["✅ Mark Attendance", "➕ Add Student", "📊 View Records"])
+
+# --------------------------- MARK ATTENDANCE ---------------------------
+with tab_mark:
+    st.subheader(f"Mark attendance for {date_str}")
+
+    st.caption(
+        "Full roll no format example: **2026073001** = Prefix `20260730` + last 2 digits `01`."
+    )
+
+    prefix = st.text_input(
+        "Roll No Prefix (fixed part, e.g. class/batch code)",
+        value="20260730",
+        key="mark_prefix",
+    )
+
+    last_two_input = st.text_area(
+        "Enter last 2 digits of each Roll No, comma-separated",
+        placeholder="e.g. 01, 05, 12, 23, 44",
+        key="mark_last_two",
+        height=100,
+    )
+
+    if st.button("Mark Present", type="primary"):
+        prefix_clean = prefix.strip()
+        raw_values = [v.strip() for v in last_two_input.split(",") if v.strip() != ""]
+
+        if not prefix_clean:
+            st.warning("Please enter the roll no prefix.")
+        elif not raw_values:
+            st.warning("Please enter at least one last-two-digit value.")
+        else:
+            full_rollnos = []
+            invalid_inputs = []
+            for v in raw_values:
+                if not v.isdigit():
+                    invalid_inputs.append(v)
+                    continue
+                padded = v.zfill(2)
+                full_rollnos.append(f"{prefix_clean}{padded}")
+
+            if not full_rollnos:
+                st.warning("No valid numeric values found.")
+            else:
+                with st.spinner(f"Marking {len(full_rollnos)} students..."):
+                    api_result = call_api(
+                        {
+                            "action": "markAttendanceBulk",
+                            "rollnos": ",".join(full_rollnos),
+                            "date": date_str,
+                        }
+                    )
+
+                if api_result.get("success"):
+                    results = api_result.get("results", [])
+                    status_map = {"marked": "✅ Marked present", "already": "ℹ️ Already marked"}
+                    display_rows = [
+                        {"rollno": r["rollno"], "status": status_map.get(r["status"], r["status"])}
+                        for r in results
+                    ]
+                    if invalid_inputs:
+                        for v in invalid_inputs:
+                            display_rows.append({"rollno": v, "status": "❌ Invalid (not a number)"})
+
+                    st.write(f"**Results for {date_str}:**")
+                    st.dataframe(pd.DataFrame(display_rows), width="stretch", hide_index=True)
+
+                    marked_count = sum(1 for r in results if r["status"] == "marked")
+                    already_count = sum(1 for r in results if r["status"] == "already")
+                    st.success(
+                        f"Done: {marked_count} newly marked, {already_count} already present, "
+                        f"{len(invalid_inputs)} invalid."
+                    )
+                else:
+                    st.error(api_result.get("message", "Bulk marking failed."))
+
+# --------------------------- ADD STUDENT ---------------------------
+with tab_add:
+    st.subheader("Add a new student (optional pre-registration)")
+    new_roll = st.text_input("Roll No", key="add_rollno")
+    new_name = st.text_input("Name", key="add_name")
+
+    if st.button("Add Student"):
+        if not new_roll.strip():
+            st.warning("Please enter a roll number.")
+        else:
+            result = call_api(
+                {"action": "addStudent", "rollno": new_roll.strip(), "name": new_name.strip()}
+            )
+            if result.get("success"):
+                st.success(result.get("message"))
+            else:
+                st.error(result.get("message", "Something went wrong."))
+
+# --------------------------- VIEW RECORDS ---------------------------
+# Streamlit re-runs the whole script on every click. To keep marking fast, the
+# sheet is only fetched when you press a button, then kept in session_state.
+with tab_view:
+    c_full, c_day, c_recalc = st.columns(3)
+
+    if c_full.button("Load Full Sheet"):
+        with st.spinner("Loading..."):
+            st.session_state["full_sheet"] = call_api({"action": "getSheetData"})
+
+    if c_day.button("Load Selected Date"):
+        with st.spinner("Loading..."):
+            st.session_state["day_sheet"] = call_api({"action": "getAttendance", "date": date_str})
+            st.session_state["day_sheet_date"] = date_str
+
+    if c_recalc.button("Recalculate Totals"):
+        with st.spinner("Recalculating..."):
+            recalc_result = call_api({"action": "recalcSummary"})
+        if recalc_result.get("success"):
+            st.success("Totals recalculated. Press 'Load Full Sheet' to see them.")
+        else:
+            st.error(recalc_result.get("message", "Recalculation failed."))
+
+    result = st.session_state.get("full_sheet")
+    if result is not None:
+        st.subheader("Full attendance sheet")
+        if result.get("success"):
+            headers = result.get("headers", [])
+            rows = result.get("rows", [])
+            if headers and rows:
+                df = pd.DataFrame(rows, columns=make_headers_unique(headers))
+                # rows arrive exactly as displayed in the sheet (all text), which
+                # also avoids pyarrow mixed-type errors.
+                st.dataframe(df.astype(str), width="stretch")
+            else:
+                st.info("No data yet. Mark some attendance first!")
+        else:
+            st.error(result.get("message", "Could not load sheet data."))
+
+    day_result = st.session_state.get("day_sheet")
+    if day_result is not None:
+        st.divider()
+        st.subheader(f"Attendance for {st.session_state.get('day_sheet_date', '')}")
+        if day_result.get("success"):
+            attendance = day_result.get("attendance", [])
+            if attendance:
+                df_day = pd.DataFrame(attendance)
+                df_day["present"] = df_day["present"].map({True: "✅ Present", False: "❌ Absent"})
+                st.dataframe(df_day, width="stretch", hide_index=True)
+            else:
+                st.info("No column found for that date yet. Mark attendance to create it.")
+        else:
+            st.error(day_result.get("message", "Could not load attendance for this date."))
