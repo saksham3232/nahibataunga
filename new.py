@@ -32,7 +32,8 @@ def make_headers_unique(headers):
     """
     Cleans up header labels for display and guarantees no duplicates,
     so pandas/pyarrow never chokes on a table with repeated column names.
-    - Shortens ISO timestamps like '2026-09-16T07:00:00.000Z' down to '2026-09-16'.
+    - Shortens ISO timestamps like '2026-09-16T07:00:00.000Z' down to '16-09-2026'.
+    - Converts dates to dd-mm-yyyy format.
     - Appends (2), (3)... to any header that repeats.
     """
     cleaned = []
@@ -76,9 +77,9 @@ if not APPS_SCRIPT_URL:
 
 # Date selector - controls which date column attendance is written to
 selected_date = st.date_input("📅 Select attendance date", value=date.today())
-date_str = selected_date.strftime("%Y-%m-%d")
+date_str = selected_date.strftime("%d-%m-%Y")
 
-tab_mark, tab_add, tab_view = st.tabs(["✅ Mark Attendance", "➕ Add Student", "📊 View Records"])
+tab_mark, tab_view = st.tabs(["✅ Mark Attendance", "📊 View Records"])
 
 # --------------------------- MARK ATTENDANCE ---------------------------
 with tab_mark:
@@ -154,29 +155,11 @@ with tab_mark:
                 else:
                     st.error(api_result.get("message", "Bulk marking failed."))
 
-# --------------------------- ADD STUDENT ---------------------------
-with tab_add:
-    st.subheader("Add a new student (optional pre-registration)")
-    new_roll = st.text_input("Roll No", key="add_rollno")
-    new_name = st.text_input("Name", key="add_name")
-
-    if st.button("Add Student"):
-        if not new_roll.strip():
-            st.warning("Please enter a roll number.")
-        else:
-            result = call_api(
-                {"action": "addStudent", "rollno": new_roll.strip(), "name": new_name.strip()}
-            )
-            if result.get("success"):
-                st.success(result.get("message"))
-            else:
-                st.error(result.get("message", "Something went wrong."))
-
 # --------------------------- VIEW RECORDS ---------------------------
 # Streamlit re-runs the whole script on every click. To keep marking fast, the
 # sheet is only fetched when you press a button, then kept in session_state.
 with tab_view:
-    c_full, c_day, c_recalc = st.columns(3)
+    c_full, c_day = st.columns(2)
 
     if c_full.button("Load Full Sheet"):
         with st.spinner("Loading..."):
@@ -187,13 +170,7 @@ with tab_view:
             st.session_state["day_sheet"] = call_api({"action": "getAttendance", "date": date_str})
             st.session_state["day_sheet_date"] = date_str
 
-    if c_recalc.button("Recalculate Totals"):
-        with st.spinner("Recalculating..."):
-            recalc_result = call_api({"action": "recalcSummary"})
-        if recalc_result.get("success"):
-            st.success("Totals recalculated. Press 'Load Full Sheet' to see them.")
-        else:
-            st.error(recalc_result.get("message", "Recalculation failed."))
+    st.info("ℹ️ Summary columns (TOTAL ATTENDED, TOTAL LECTURES, PERCENTAGE) are automatically updated when you mark attendance.")
 
     result = st.session_state.get("full_sheet")
     if result is not None:
